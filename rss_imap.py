@@ -30,7 +30,8 @@ class TranslationException(Exception):
         super().__init__(*args, **kwargs)
 
 
-db = sqlite3.connect(os.environ.get('RSS_DB'))
+def get_db():
+    return sqlite3.connect(os.environ.get('RSS_DB'))
 
 
 def item_message_id(feed, item):
@@ -182,7 +183,8 @@ class RssIMAP:
     def check_for_message_ids(self, folder, msgids):
         questionmarks = '?' * len(msgids)
         sql = 'SELECT guid FROM feeds WHERE feed_folder = ? and guid IN ({})'.format(','.join(questionmarks))
-        cur = db.cursor()
+        con = get_db()
+        cur = con.cursor()
         try:
             args = [folder]
             args.extend(msgids)
@@ -247,7 +249,8 @@ if __name__ == '__main__':
             if len(items) == 0:
                 continue
             x.save_items_to_imap(filtered)
-            cur = db.cursor()
+            con = get_db()
+            cur = con.cursor()
             try:
                 now = datetime.datetime.now().isoformat()
                 for item in filtered:
