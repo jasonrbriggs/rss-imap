@@ -149,28 +149,6 @@ def parse_config(dat):
             feed_configs.append(FeedConfig(item, parent_config))
     return feed_configs
 
-def parse_configs(configs):
-    l = logging.getLogger(__name__)
-    feed_configs : List[FeedConfig] = []
-    app_config = {'FolderTemplate': config.feed_folder_template, 'SubjectTemplate': config.subject_template}
-    for dat in configs:
-        parent_config = app_config
-        l.debug("Config data: %s", dat)
-        for item in filter(lambda p: p != None, yaml.safe_load_all(dat)):
-            if 'Configuration' in item and 'Items' not in item:
-                l.debug("Config item: %s", dat)
-                parent_config = item['Configuration']
-            elif 'Configuration' in item and 'Items' in item:
-                parent = item['Configuration']
-                for feed in item['Items']:
-                    feed_configs.append(FeedConfig(feed, parent, parent_config))
-            elif 'Items' in item:
-                for feed in item['Items']:
-                    feed_configs.append(FeedConfig(feed, parent_config))
-            else:
-                feed_configs.append(FeedConfig(item, parent_config))
-    return feed_configs
-
 class RssIMAP:
     def __init__(self):
         pass
@@ -198,10 +176,6 @@ class RssIMAP:
         with open('rss-imap.yaml') as f:
             the_data = f.read()
             return parse_config(the_data)
-
-    def get_feed_config_from_imap(self):
-        the_data = self.config_data_from_imap()
-        return parse_configs(the_data)
 
     def check_for_message_ids(self, folder, msgids):
         questionmarks = '?' * len(msgids)
