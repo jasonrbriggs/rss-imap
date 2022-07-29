@@ -1,6 +1,7 @@
 from typing import List
 import config
 
+import os
 import datetime
 from email.mime.text import MIMEText
 from html.parser import HTMLParser
@@ -16,7 +17,10 @@ import socket
 import feedparser
 import yaml
 
+import sqlite3
+
 from imap_wrapper import ImapWrapper
+
 
 class FilterError(IOError):
     pass
@@ -25,11 +29,15 @@ class TranslationException(Exception):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
+
+db = sqlite3.connect(os.environ.get('RSS_DB'))
+
+
 def item_message_id(feed, item):
     msgid = item.get('id', item.link)
     if not msgid:
         msgid = feed.Name + " / " + item.title + " AT " + item.get('date', 'No date')
-    msgid = msgid.replace(' ', '_')
+    msgid = msgid.replace(' ', '_').replace('(', '').replace(')', '')
     msgid = re.sub('[^\x00-\x7f]', '_', msgid)
     return msgid
 
@@ -53,10 +61,15 @@ def rss_item_to_email(item, feed):
         text = '<p>Item Link: <a href="%s">%s</a></p>' % (item.link, item.link)
         if 'summary' in item:
             text = text + "<br>" + item.summary
+        if 'content:encoded' in item:
+            text = text + "<br>" + getattr(item, 'content:encoded')
+        elif 'content' in item:
+            text = text + "<br>" + item.content[0]['value']
         email = MIMEText(text, "html")
         email['Subject'] = feed.format_subject(subject=strip_html(item.title))
         email['From'] = item.get('author', '(Author Not Provided)')
         email['Message-Id'] = item_message_id(feed, item)
+        email['X-Bogosity'] = 'No, tests=bogofilter, spamicity=0.000043, version=1.0.0.0'
         if 'published' in item:
             date = item.published
             date_parts = item.published_parsed
@@ -143,8 +156,8 @@ class RssIMAP:
     def __init__(self):
         pass
 
-    def connect_imap(self, hostname, username, password, **kwargs):
-        self._W = ImapWrapper(hostname, username, password, **kwargs)
+    def connect_imap(self, hostname, port, username, password, **kwargs):
+        self._W = ImapWrapper(hostname, port, username, password, **kwargs)
         self._W.ensure_folder(config.config_mailbox)
 
     def config_data_from_imap(self):
@@ -166,22 +179,30 @@ class RssIMAP:
         the_data = self.config_data_from_imap()
         return parse_configs(the_data)
 
+    def check_for_message_ids(self, folder, msgids):
+        questionmarks = '?' * len(msgids)
+        sql = 'SELECT guid FROM feeds WHERE feed_folder = ? and guid IN ({})'.format(','.join(questionmarks))
+        cur = db.cursor()
+        try:
+            args = [folder]
+            args.extend(msgids)
+            rs = cur.execute(sql, args)
+            rtn = [x[0] for x in rs.fetchall()]
+            return rtn
+        finally:
+            cur.close()
+
     def filter_items(self, folder, items):
         """Filter a list of items to only those that do not exist on the server."""
         try:
-            have_ids = self._W.check_folder_for_message_ids(folder, [item.message_id for item in items])
+            have_ids = self.check_for_message_ids(folder, [item.message_id for item in items])
         except:
             l = logging.getLogger(__name__)
             l.exception("Exception while checking existing items in %s", folder)
-
-            try:
-                have_ids = self._W.check_folder_for_message_ids(folder, [item.message_id for item in items])
-            except:
-                l.exception("Second exception while checking existing items in %s; skipping.", folder)
-                return []
+            return []
         want_items = []
         for item in items:
-            if not (item.message_id.encode('utf-8') in have_ids):
+            if not (item.message_id in have_ids):
                 want_items.append(item)
         return want_items
 
@@ -204,7 +225,7 @@ if __name__ == '__main__':
     # the RSS feed servers isn't responding.
     socket.setdefaulttimeout(10)
     x = RssIMAP()
-    x.connect_imap(config.hostname, config.username, config.password)
+    x.connect_imap(config.hostname, config.port, config.username, config.password)
     feeds = x.get_feed_config_from_imap()
     todo = queue.Queue()
     producer_threads = []
@@ -220,11 +241,20 @@ if __name__ == '__main__':
             if items == None:
                 break
             l.info("Filtering %d items from feed %s", len(items), feed.URL)
-            filtered = x.filter_items(feed.quoted_folder(), items)
+            folder = feed.quoted_folder()
+            filtered = x.filter_items(folder, items)
             l.info("Done filtering feed %s", feed.URL)
             if len(items) == 0:
                 continue
             x.save_items_to_imap(filtered)
+            cur = db.cursor()
+            try:
+                now = datetime.datetime.now().isoformat()
+                for item in filtered:
+                    cur.execute('insert into feeds values (?, ?, ?)', (folder, item.message_id, now))
+                con.commit()
+            finally:
+                cur.close()
             l.info("Done saving %d new items from feed %s", len(filtered), feed.URL)
 
 
