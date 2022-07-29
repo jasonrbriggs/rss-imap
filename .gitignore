@@ -3,3 +3,4 @@ __pycache__/
 env/
 run.sh
 .vscode
+rss-imap.sh
