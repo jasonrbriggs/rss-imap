@@ -3,6 +3,7 @@ import os, getpass, logging
 hostname = os.environ.get('IMAP_HOST')
 username = os.environ.get('IMAP_USER')
 password = os.environ.get('IMAP_PASS')
+port = int(os.environ.get('IMAP_PORT', '993'))
 
 config_mailbox = os.environ.get('CONFIG_MAILBOX') or '.config'
 
@@ -13,7 +14,7 @@ debug_no_imap_ssl = os.environ.get('DEBUG_IMAP_NO_SSL') == 'true'
 # Configuration:
 #   FolderTemplate: 'template with {name}'
 #   SubjectTemplate: 'template with {name} and {subject}'
-feed_folder_template = os.environ.get('FEED_FOLDER_TEMPLATE') or 'RSS Feeds/{name}'
+feed_folder_template = os.environ.get('FEED_FOLDER_TEMPLATE') or 'RSS.{name}'
 subject_template = os.environ.get('FEED_ITEM_SUBJECT_TEMPLATE') or '{subject}'
 
 if not hostname:
